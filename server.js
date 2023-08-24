@@ -8,6 +8,7 @@ import categoryRoute from './routes/categoryRoute.js'
 import productRoute from './routes/productRoute.js'
 import cors from 'cors'
 import path from 'path'//use path for locating the build folder to deploy webapp
+import { fileURLToPath } from 'url' //To access dirname in ES6
 //const and require - common js format
 //import from - module(ES6)(as React) format
 
@@ -16,6 +17,10 @@ dotenv.config();
 
 //database config
 connectDB();
+
+//ES Module fix
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 //rest object
 const app = express()
