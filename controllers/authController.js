@@ -1,0 +1,265 @@
+import { comparePassword, hashPassword } from "../helper/authHelper.js";
+import userModel from "../modules/userModel.js";
+import orderModel from "../modules/orderModel.js";
+import JWT from "jsonwebtoken";
+ 
+//In try block->we'll try to register the user with the usermodule
+export const registerController = async (req,res) => {
+    try {
+        //destructure the user details which we are getting through req.body
+        const {name,email,password,phone,address,answer} = req.body;
+
+        //validation (this is on server side, we will/can put on client side also)
+        if(!name){
+            return res.send({message:'Name is required!'});
+        }
+        if(!email){
+            return res.send({message:'Email is required!'});
+        }
+        if(!password){
+            return res.send({message:'Password is required!'});
+        }
+        if(!phone){
+            return res.send({message:'Pone number is required!'});
+        }
+        if(!address){
+            return res.send({message:'Address is required!'});
+        }
+        if(!answer){
+            return res.send({message:'Answer is required!'});
+        }
+
+
+        //check user
+        const existingUser = await userModel.findOne({email})
+        //check if existing user is present or not
+        if(existingUser){
+            return res.status(200).send({
+                success: false,
+                message:'Already register, Please Login'
+            })
+        }
+
+        //*registering the user*//
+        //we pass the plain pass from the user and pass it to authHelper to hash the password
+        const hasedPassword = await hashPassword(password);
+        //save user details with newly hashed password with ".save()" method
+        const user = await new userModel({name,email,phone,address,password:hasedPassword,answer}).save();
+
+        res.status(201).send({
+            success: true,
+            message: 'User Registered Successfully!!',
+            user//after saving the response, will pass the user data(with newly hash pass) as 'user'
+        })
+
+    } catch (error) {
+        console.log(error)
+        res.status(500).send({
+            success:false,
+            message:'Error in registrations',
+            error,
+        })
+    }
+ };
+
+//POST Login
+export const loginController = async (req,res) => {
+    try {
+        //in case of login we will get email and password as user details. will destructure it
+        const {email,password} =req.body//it will come from req.body
+
+        //validation
+        if(!email || !password){
+            req.status(404).send({
+                success:false,
+                message:'Invalid Email or Password!',
+            })
+        }
+
+        //check user
+        const user = await userModel.findOne({email})
+        if(!user){
+            return res.status(404).send({
+                success:false,
+                message:'Email is not registered',
+            })
+        }
+
+        //we'll try to match the newly got password with the found user's password(by .findOne method)
+        //password - we got from the new entry to be checked for Login
+        //user.password - we tried to fetch it from database and compare it
+        const match = await comparePassword(password,user.password)
+        if(!match){
+            return res.status(200).send({
+                success:false,
+                message:'Invalid Password!'
+            })
+        }
+
+        //token
+        const token = await JWT.sign({_id: user._id}, process.env.JWT_SECRET,{
+            expiresIn:'7d',
+        });
+        res.status(200).send({
+            success:true,
+            message:'Login Successfully!! :)',
+            user:{
+                name:user.name,
+                email:user.email,
+                phone:user.phone,
+                address:user.address,
+                role:user.role,
+            },
+            token,
+        })
+
+    } catch (error) {
+        console.log(error)
+        res.status(500).send({
+            success: false,
+            message: 'Error in Login',
+            error,
+        })
+    }
+};
+
+//fogotPassword Controller
+//will take email, answer, new password from user and comapre the answer if its correct or not.
+//if ans correct, then only new pass will be applied
+export const forgotPasswordController= async(req, res) => {
+    try {
+        const {email,answer,newpassword} = req.body;
+        if(!email){//validation
+            res.status(400).send({message: 'Email is required'})
+        }
+        if(!answer){
+            res.status(400).send({message: 'Answer is required'})
+        }
+        if(!newpassword){
+            res.status(400).send({message: 'New Password is required'})
+        }
+        //check 
+        //will check with userModel by email and answer
+        const user = await userModel.findOne({email,answer});
+        //validation
+        if(!user){//if user not present
+            return res.status(404).send({
+                success: false,
+                message: 'Wrong Email or Answer',
+            })
+        }
+        //At here, the user is present and we need to change with the new Password.
+        //1st we will hash the new pass also.... and then will change with the new Password.
+        const hashed = await hashPassword(newpassword);
+        await userModel.findByIdAndUpdate(user._id,{password:hashed})
+        res.status(200).send({
+            success:true,
+            message: 'Password Reset Successfully!'
+        });
+    } catch (error) {
+        console.log(error);
+        res.status(500).send({
+            success: false,
+            message: 'Something went wrong',
+            error
+        })
+    }
+}
+
+
+//test Controller
+export const testController = (req,res) =>{
+    res.send('Protected Route');//res.send will send n show response on Postman 
+}
+
+//This will be used in routes folder by register routes
+
+
+//update Profile Controller
+export const updateProfileController = async (req,res) => {
+    try {
+        const {name, email, password, phone, address} =req.body;
+        const user = await userModel.findById(req.user._id);
+        //password
+        if(password && password.length < 6){
+            return res.json({error:'Password is required and 6 character long'});
+        }
+        //before update, need to hash the password
+        const hashedPassword = password ? await hashPassword(password) :
+            undefined ;
+
+        //Now, update the field which are changed
+        const updatedUser = await userModel.findByIdAndUpdate(req.user._id,{
+            name: name || user.name,
+            password: hashedPassword || user.password,
+            phone: phone || user.phone,
+            address: address || user.address,
+        },{new: true})
+        res.status(200).send({
+            succes: true,
+            message: 'User Profile Update Successfully',
+            updatedUser,
+        })
+    } catch (error) {
+        console.log(error);
+        res.status(400).send({
+            success: false,
+            message:'Error while updating user profile',
+            error,
+        })
+    }
+};
+
+//orders
+export const getOrdersController = async (req, res) =>{
+    try {
+        const orders = await orderModel
+            .find({buyer: req.user._id})
+            .populate('products','-photo')
+            .populate('buyer', 'name');
+        res.json(orders);
+    } catch (error) {
+        console.log(error);
+        res.status(500).send({
+            success: false,
+            message: 'Error while getting orders',
+            error,
+        })
+    }
+}
+
+//get All Orders
+export const getAllOrdersController= async(req, res)=>{
+    try {
+        const orders = await orderModel
+            .find({})
+            .populate('products','-photo')
+            .populate('buyer', 'name')
+            .sort({createdAt: '-1'})
+        res.json(orders);
+    } catch (error) {
+        console.log(error);
+        res.status(500).send({
+            success: false,
+            message: 'Error while getting orders',
+            error,
+        })
+    }
+}
+
+//update order status
+export const orderStatusController = async (req, res) => {
+    try {
+        const { orderId } = req.params;
+        const { status } = req.body;
+        const orders = await orderModel.findByIdAndUpdate(orderId, {status}, {new: true});
+        res.json(orders);
+    } catch (error) {
+        console.log(error);
+        res.status(500).send({
+            success: false,
+            message: 'Error while updatig order status',
+            error,
+        })
+    }
+}
